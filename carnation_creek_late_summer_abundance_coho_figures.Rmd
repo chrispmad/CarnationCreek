@@ -141,24 +141,26 @@ logging_phase_labels = data.frame(
 #                         juv_co_s |> mutate(dattype = 'juveniles'))
 
 ggplot()+
-  geom_col(aes(x = year, y = late_summer_coho_population_abundance, fill = 'smolts(?)'),alpha=0.8, data = co) +
-  geom_col(aes(x = year, y = population_estimate_n, fill = 'juveniles'), alpha=0.8, data = juv_co_s) + 
+  geom_col(aes(x = year, y = late_summer_coho_population_abundance, fill = 'juveniles'),alpha=0.8, data = co) +
+  geom_col(aes(x = year, y = population_estimate_n, fill = 'smolts'), alpha=0.8, data = juv_co_s) + 
   scale_fill_paletteer_d("nationalparkcolors::Badlands") +
   # scale_fill_manual(values = c(coho_colour_values$values))
   # scale_fill_identity(guide = "legend") + 
-  geom_vline(data = logging_changes, aes(xintercept = Year), lty = 2, alpha = 0.25) +
+  geom_vline(data = logging_changes, aes(xintercept = Year), lty = 1, alpha = 0.5, color = 'darkred') +
   geom_text(data =logging_phase_labels, aes(x = Year, y = 24000, label = label), alpha = 0.3) + 
-  labs(fill = 'Fish Age', y = 'population estimate (N)', x = 'Year and Logging Phase')
+  labs(fill = 'Fish Age', y = 'population estimate (N)', x = 'Year and Logging Phase') +
+  ggthemes::theme_pander()
 
 ggplot()+
-  geom_col(aes(x = year, y = late_summer_coho_population_abundance, fill = 'smolts(?)'),alpha=0.8, data = co) +
-  geom_col(aes(x = year, y = population_estimate_n, fill = 'juveniles'), alpha=0.8, data = juv_co_s) + 
+  geom_col(aes(x = year, y = late_summer_coho_population_abundance, fill = 'juveniles'),alpha=0.8, data = co) +
+  geom_col(aes(x = year, y = population_estimate_n, fill = 'smolts'), alpha=0.8, data = juv_co_s) + 
   scale_fill_paletteer_d("nationalparkcolors::Badlands") +
   # scale_fill_manual(values = c(coho_colour_values$values))
   # scale_fill_identity(guide = "legend") + 
-  geom_vline(data = logging_changes, aes(xintercept = Year), lty = 2, alpha = 0.25) +
+  geom_vline(data = logging_changes, aes(xintercept = Year), lty = 1, alpha = 0.5, color = 'darkred') +
   geom_text(data =logging_phase_labels, aes(x = Year, y = 24000, label = label), color = logging_phase_labels$color) + 
-  labs(fill = 'Fish Age', y = 'population estimate (N)', x = 'Year and Logging Phase')
+  labs(fill = 'Fish Age', y = 'population estimate (N)', x = 'Year and Logging Phase') +
+  ggthemes::theme_pander()
 ```
 
 ### Coho Pop by Year and Logging Phase by Section
@@ -170,7 +172,20 @@ co_section |>
   geom_col(aes(x = year, y = value, fill = logging_phase)) +
   facet_wrap(~ name, ncol = 1) +
   scale_fill_paletteer_d("nationalparkcolors::Badlands") + 
-  labs(y = "Late Summer Coho Population Estimate", x = "Year", fill = "Logging Phase")
+  labs(y = "Late Summer Coho Population Estimate", x = "Year", fill = "Logging Phase") +
+  ggthemes::theme_pander()
+```
+
+### Overwinter Survival
+
+```{r}
+ggplot() +
+  geom_col(aes(x = year, y = percent_overwinter_survival), data = co) +
+  scale_fill_paletteer_d("nationalparkcolors::Badlands") +
+  geom_vline(data = logging_changes, aes(xintercept = Year), lty = 1, alpha = 0.5, color = 'darkred') +
+  geom_text(data =logging_phase_labels, aes(x = Year, y = 1.1*max(co$percent_overwinter_survival,na.rm=T), label = label), alpha = 0.3) + 
+  labs(fill = 'Fish Age', y = 'population estimate (N)', x = 'Year and Logging Phase') +
+  ggthemes::theme_pander()
 ```
 
 ## Boxplots {.tabset}
@@ -187,5 +202,6 @@ co_section |>
   ggpubr::stat_compare_means(comparisons = my_comparisons) +
   ggpubr::stat_compare_means(method = "anova", label.y = 1000, label.x = "during_logging") +
   labs(y = "Late Summer Coho Population Estimate", x = "Year", fill = "Logging Phase") + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12))
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12)) +
+  ggthemes::theme_pander()
 ```
