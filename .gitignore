@@ -9,3 +9,6 @@ app/www/**
 .httr-oauth
 .DS_Store
 .quarto
+*.html
+output/**
+app/rsconnect/**

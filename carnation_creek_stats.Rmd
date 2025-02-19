@@ -1,0 +1,597 @@
+---
+title: "Carnation Creek Statistics"
+author: "Peter T et al."
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F, fig.width = 10, fig.height = 8)
+library(tidyverse)
+library(ggpubr)
+library(DT)
+library(htmltools)
+library(plotly)
+library(CCA)
+library(CCP)
+
+data.frame() %>%
+  DT::datatable() %>%
+  knitr::knit_print() %>%
+  attr('knit_meta') %>%
+  knitr::knit_meta_add() %>%
+  invisible()
+```
+
+```{r load_in_data}
+# Load in formatted datasets
+hyd = read_csv("data/formatted/all_hydro_data_by_year.csv")
+
+fd = read_csv("data/formatted/all_fish_data_by_year.csv") |> 
+  dplyr::select(logging_phase, year, dplyr::everything())
+```
+
+```{r find_sites}
+all_names = names(hyd)
+site_names = unique(str_extract(all_names[str_detect(all_names,"sa_[0-9]{1}_")], "sa_[0-9]{1}"))
+```
+
+# Sections {.tabset}
+
+## Data Exploration
+
+### Fish Data {.tabset}
+
+#### Histograms
+
+```{r test_for_normality_fish}
+# Fish data
+fd |> 
+  tidyr::pivot_longer(-c(year,dplyr::where(is.character))) |> 
+  ggplot() + 
+  geom_histogram(aes(value)) + 
+  facet_wrap( ~ name, scales = 'free')
+```
+
+#### Normality Tests
+
+```{r normality_tests_fish}
+fd_norm_tests = fd |> 
+  tidyr::pivot_longer(-c(year,dplyr::where(is.character))) |> 
+  group_by(name) |> 
+  group_split() |> 
+  purrr::map( ~ {
+    var_name = unique(.x$name)
+    dat = .x[!is.na(.x$value),]
+    if(nrow(dat) < 3) return(NULL)
+    norm_test = shapiro.test(dat$value)
+    broom::tidy(norm_test) |> 
+      dplyr::mutate(variable = var_name)
+  }) |> 
+  dplyr::bind_rows() |> 
+  dplyr::select(variable,statistic,p.value) |> 
+  dplyr::mutate(across(c(statistic, p.value), \(x) round(x,3))) |> 
+  dplyr::mutate(distribution = ifelse(p.value <= 0.05, "non-normal", "normal"))
+
+fd_norm_tests |> DT::datatable()
+
+fd = fd |> # Remove site-level juvenile fish population counts
+  dplyr::select(-dplyr::contains("juv_pop_in_section_"))
+```
+
+```{r fish_data_apply_transformations}
+# fish_vars_for_transformation = fd_norm_tests[fd_norm_tests$distribution == "non-normal",]$variable
+# 
+# fish_vars_for_transformation_in_fd = fish_vars_for_transformation[fish_vars_for_transformation %in% names(fd)]
+# 
+# fd_c = fd |> 
+#   dplyr::mutate(dplyr::across(all_of(fish_vars_for_transformation_in_fd), \(x) log(x)))
+# 
+# fd_c |> 
+#   tidyr::pivot_longer(-c(year,dplyr::where(is.character))) |> 
+#   group_by(name) |> 
+#   group_split() |> 
+#   purrr::map( ~ {
+#     var_name = unique(.x$name)
+#     dat = .x[!is.na(.x$value),]
+#     if(nrow(dat) < 3) return(NULL)
+#     norm_test = shapiro.test(dat$value)
+#     broom::tidy(norm_test) |> 
+#       dplyr::mutate(variable = var_name)
+#   }) |> 
+#   dplyr::bind_rows() |> 
+#   dplyr::select(variable,statistic,p.value) |> 
+#   dplyr::mutate(across(c(statistic, p.value), \(x) round(x,3))) |> 
+#   dplyr::mutate(distribution = ifelse(p.value <= 0.05, "non-normal", "normal"))
+```
+
+Please note: site-level response variables (e.g. 'juv_pop_in_section_2') have been removed from this point onward. We may want to revisit these site-level response variables.
+
+### Hydro Data {.tabset}
+
+```{r make_hydro_chunks, results='asis'}
+
+hydro_normality_results = list()
+
+for (site in site_names) {
+  cat(paste0('\n\n#### ',site,' {.tabset}'))
+  
+  cat(paste0('\n\n##### Histograms'))
+  
+  sa_num_vars = hyd |> 
+    dplyr::select(-ends_with("mad")) |> 
+    dplyr::select(-contains("_class_")) |> 
+    dplyr::select(year,starts_with(site)) |> 
+    tidyr::pivot_longer(-c(year,dplyr::where(is.character)))
+  
+  cat("\n\n")
+  
+  print(
+    sa_num_vars |> 
+      ggplot() + 
+      geom_histogram(aes(value)) + 
+      facet_wrap( ~ name, scales = 'free')
+  )
+  
+  cat("\n\n")
+  
+  cat(paste0('\n\n##### Normality Tests'))
+  
+  cat("\n\n")
+  
+  sa_num_vars_norm_tests = sa_num_vars |> 
+    group_by(name) |> 
+    group_split() |> 
+    purrr::map( ~ {
+      var_name = unique(.x$name)
+      dat = .x[!is.na(.x$value),]
+      null_result = data.frame(variable = var_name, statistic = NA, p.value = NA)
+      if(nrow(dat) < 3) return(null_result)
+      # Are the values either identical?
+      if(length(unique(dat$value)) == 1){
+        return(null_result)
+      }
+      norm_test = shapiro.test(dat$value)
+      broom::tidy(norm_test) |> 
+        dplyr::mutate(variable = var_name)
+    }) |> 
+    dplyr::bind_rows() |> 
+    dplyr::select(variable,statistic,p.value) |> 
+    dplyr::mutate(across(c(statistic, p.value), \(x) round(x,3))) |> 
+    dplyr::mutate(distribution = dplyr::case_when(
+      p.value <= 0.05 ~ "non-normal", 
+      is.na(statistic) ~ "test not possible",
+      T ~ "normal"))
+  
+  # Add the normality test results to a results list
+  hydro_normality_results = append(hydro_normality_results, list(sa_num_vars_norm_tests))
+  
+  print(htmltools::tagList(DT::datatable(sa_num_vars_norm_tests)))
+
+  cat("\n\n")
+  
+}
+```
+
+```{r}
+hydro_normality_results_df = hydro_normality_results |> 
+  dplyr::bind_rows()
+
+# Which hydro variables are normally distributed?
+hyd_norm_vars = hydro_normality_results_df |> 
+  dplyr::filter(distribution == "normal") |> 
+  dplyr::select(variable) |> 
+  dplyr::distinct() |> 
+  dplyr::pull(variable)
+
+hyd_norm = hyd |> 
+  dplyr::select(year, all_of(hyd_norm_vars))
+
+# # Attempt to transform the non-normally distributed variables into normality.
+# nonnormal_hyd_vars = unique(
+#   hydro_normality_results_df[hydro_normality_results_df$distribution == 'non-normal',]$variable
+# )
+# 
+# hyd_c = hyd |> 
+#   dplyr::mutate(dplyr::across(dplyr::all_of(nonnormal_hyd_vars), \(x) log(x)))
+# 
+# hyd_c |> 
+#   dplyr::select(dplyr::all_of(nonnormal_hyd_vars)) |> 
+#   tidyr::pivot_longer(cols = dplyr::everything()) |> 
+#   dplyr::group_by(name) |> 
+#   group_split() |> 
+#     purrr::map( ~ {
+#       var_name = unique(.x$name)
+#       dat = .x[!is.na(.x$value),]
+#       null_result = data.frame(variable = var_name, statistic = NA, p.value = NA)
+#       if(nrow(dat) < 3) return(null_result)
+#       # Are the values either identical?
+#       if(length(unique(dat$value)) == 1){
+#         return(null_result)
+#       }
+#       norm_test = shapiro.test(dat$value)
+#       broom::tidy(norm_test) |> 
+#         dplyr::mutate(variable = var_name)
+#     }) |> 
+#   dplyr::bind_rows() |> 
+#   dplyr::select(variable,statistic,p.value) |> 
+#   dplyr::mutate(across(c(statistic, p.value), \(x) round(x,3))) |> 
+#   dplyr::mutate(distribution = dplyr::case_when(
+#     p.value <= 0.05 ~ "non-normal", 
+#     is.na(statistic) ~ "test not possible",
+#     T ~ "normal")) |> 
+#   dplyr::count(distribution)
+# Count results: after transformation, 67 vars still non-normal, 23 vars now normal, 7 vars could not be tested for normality aftering transforming.
+```
+
+```{r scale_all_predictor_variables_from_neg_1_to_1}
+hyd_numeric_cols = sapply(hyd, is.numeric) # Find which variables are numeric
+hyd_numeric_cols[1] = FALSE # Drop the 'year' variable
+hyd_numeric_cols = names(hyd)[hyd_numeric_cols]
+
+hyd = hyd |> 
+  dplyr::mutate(dplyr::across(hyd_numeric_cols, \(x) as.numeric(scale(x))))
+```
+
+```{r optional_removal_of_hyd_variables}
+all_hyd_names = names(hyd)
+
+hyd_full = hyd
+
+hyd = hyd_full
+
+# Notes from Dave Reid:
+
+# # If we were to choose a single flow level to look at, I'd recommend 10% MAD, for starters. 
+hyd = hyd |> 
+  dplyr::select(!dplyr::ends_with("_3_mad")) |> 
+  dplyr::select(!dplyr::ends_with("_5_mad")) |> 
+  dplyr::select(!dplyr::ends_with("_20_mad")) |> 
+  dplyr::select(!dplyr::ends_with("_40_mad")) |> 
+  dplyr::select(!dplyr::ends_with("_100_mad")) |> 
+  dplyr::select(!dplyr::ends_with("_400_mad")) |> 
+  dplyr::select(!dplyr::ends_with("7_q_10")) |> 
+  dplyr::select(!dplyr::ends_with("95_p")) |> 
+  dplyr::select(!dplyr::ends_with("_1"))
+
+# # For all the wood-related variables just start with "SAx_volume" and ignore the piece size class stuff, as well. 
+hyd = hyd |> 
+  dplyr::select(-contains("_class_"))
+
+# # Personally, the time series variable I'd be most interested in is the modelled pool habitat with structural cover. This integrates changes in pool area where wood cover is present and therefore captures a nice combination of changes in wood abundance and position, and also channel morphology and hydraulics
+
+# # I guess I don't know what makes the most sense RE site vs aggregate level. I suppose it depends on how exactly the fish data looks. I would lean towards aggregate before site but wouldn't be surprised if there are interesting differences at the site level too
+hyd = hyd |> 
+  dplyr::select(-starts_with("sa_"))
+
+```
+
+Hydrological variables selected for use in this study include: `r paste0(names(hyd), collapse = ", ")`.
+
+```{r trim_away_years_with_missing_predictor_variable_values}
+hyd = hyd[complete.cases(hyd),]
+```
+
+## Correlation Matrix
+
+```{r correlation_matrix}
+
+# Correlation matrix of predictor variables.
+hyd_cor = cor(hyd)
+
+hyd_cor |> 
+  knitr::kable()
+```
+
+```{r join_fish_and_hydro_data}
+dat = dplyr::left_join(fd, hyd)
+
+# Remove response variables with an egregious number of NA values.
+dat = dat |> 
+  dplyr::select(-c(period_mean_percent_survival:`95_c_i`))
+
+# Remove variables that are basically just row numbers.
+row_number_columns = sapply(dat, function(x) !is.na(x[1]) & (x[1] == 1 & x[2] == 2))
+
+dat = dat |> 
+  dplyr::select(-all_of(names(row_number_columns[row_number_columns])))
+
+response_vars = names(dat)[!names(dat) %in% c("year","logging_phase",names(hyd))]
+predictor_vars = names(dat)[!names(dat) %in% c("year","logging_phase",names(fd))]
+
+# Note: the following statistics were run with only those predictor variables that were normally distributed. 
+```
+
+## Linear Model with Step Function {.tabset}
+
+Note: For a given response variable, a year of data (i.e. a row in the dataset) was removed if any of the normally distributed predictor variables lacked data.
+
+```{r apply_linear_model_with_step}
+lm_step_results = response_vars |> 
+  purrr::map( ~ { 
+    
+    # Make a trimmed down version of dat that only keeps rows with non-NA
+    # values for this response variable.
+    rdat = dat |> dplyr::filter(!is.na(.x))
+    
+    # Who has NA values?
+    rdat = rdat[complete.cases(rdat),]
+    
+    # Create a formula for the full model
+    full_formula <- as.formula(
+      paste(.x, "~", paste(predictor_vars, collapse = " + "))
+    )
+    
+    # Fit the full model
+    full_model <- lm(full_formula, data = rdat)
+    
+    # Perform stepwise regression
+    step_model <- step(full_model, direction = "backward", trace = 0)
+    
+    broom::tidy(step_model) |> 
+      dplyr::mutate(response_var = .x) |> 
+      dplyr::mutate(dplyr::across(estimate:std.error, \(x) round(x,0))) |> 
+      dplyr::mutate(dplyr::across(statistic:p.value, \(x) round(x,3))) |> 
+      dplyr::mutate(rows_of_data_used = nrow(rdat)) |> 
+      dplyr::select(response_var, rows_of_data_used, dplyr::everything())
+  }) |> 
+  dplyr::bind_rows()
+
+```
+
+```{r make_linear_model_with_step_results_chunks, results='asis'}
+
+for(response_var in unique(lm_step_results$response_var)) {
+  cat(paste0('\n\n### ',response_var))
+  
+  cat("\n\n")
+  
+  formula_pred_vars = paste0(lm_step_results[lm_step_results$response_var == response_var,]$term[-1])
+  
+  formula_to_show = paste0("$$",snakecase::to_upper_camel_case(response_var),
+                           " = ",
+                           paste0(
+                             snakecase::to_upper_camel_case(
+                               formula_pred_vars)
+                             ,collapse = " + "),
+                           "$$")
+  
+  cat(formula_to_show)
+  
+  cat("\n\n")
+  
+  dat_to_show = lm_step_results[lm_step_results$response_var == response_var,]
+  
+  rows_of_dat = unique(dat_to_show$rows_of_data_used)
+
+  dat_to_show = dat_to_show |> 
+    dplyr::select(-response_var) |> 
+    dplyr::mutate(estimate_size = abs(estimate)) |> 
+    dplyr::mutate(estimate_size = ifelse(term == "(Intercept)", 2*max(abs(estimate)), estimate_size)) |> 
+    dplyr::arrange(dplyr::desc(estimate_size)) |> 
+    dplyr::select(-c(estimate_size,rows_of_data_used)) |> 
+    dplyr::rename(predictor_variable = term)
+  
+  # Which rows are statistically significant? Let's highlight those.
+  bold_rows = which(dat_to_show$p.value <= 0.05)
+  
+  if(length(bold_rows) == 0) bold_rows = 0
+  
+  cat(paste0(rows_of_dat," rows of data used in this model.\n\n"))
+  
+  the_dt = DT::datatable(dat_to_show) %>% 
+    formatStyle(
+    0,
+    target = "row",
+    fontWeight = styleRow(bold_rows, "bold"),
+    `font-size`="15px"
+  )
+  
+  print(htmltools::tagList(the_dt))
+
+  cat("\n\n")
+  
+}
+```
+
+## Canonical Correspondence Analysis {.tabset}
+
+```{r}
+library(CCA)
+library(CCP)
+the_resp = response_vars[1]
+the_formula = paste(the_resp, "~", paste(predictor_vars, collapse = " + "))
+
+the_dat = dat |> dplyr::filter(!is.na(the_resp))
+
+resp_dat = the_dat |> dplyr::select(all_of(response_vars))
+pred_dat = the_dat |> dplyr::select(all_of(predictor_vars))
+
+# Run CCA
+cca_results = cc(resp_dat, pred_dat)
+# Find variable loadings
+cca_loadings = comput(resp_dat, pred_dat, cca_results)
+
+# tests of canonical dimensions
+rho <- cca_results$cor
+## Define number of observations, number of variables in first set, and number of variables in the second set.
+n <- dim(resp_dat)[1]
+p <- length(resp_dat)
+q <- length(pred_dat)
+
+## Calculate p-values using the F-approximations of different test statistics:
+CCP::p.asym(rho, n, p, q, tstat = "Wilks")
+
+library(ggplot2)
+
+# Extract canonical scores and loadings
+xscores <- cca_loadings$corr.X.xscores  # Canonical scores for predictors
+yscores <- cca_loadings$corr.Y.xscores  # Canonical scores for responses
+corr_X <- cca_loadings$corr.X.xscores          # Loadings for predictor variables
+corr_Y <- cca_loadings$corr.Y.xscores          # Loadings for response variables
+
+# We will plot only the first 2 canonical variates (latent canonical variables)
+df_biplot_scores <- data.frame(Canonical1 = xscores[, 1], Canonical2 = xscores[, 2]) |> 
+  dplyr::mutate(Canonical1 = round(Canonical1,3),
+                Canonical2 = round(Canonical2,3))
+
+df_biplot_scores$vars = row.names(df_biplot_scores)
+
+df_loadings_Y <- data.frame(Variable = colnames(pred_dat),
+                            Canonical1 = corr_Y[, 1],
+                            Canonical2 = corr_Y[, 2])
+df_loadings_X <- data.frame(Variable = colnames(resp_dat),
+                            Canonical1 = corr_X[, 1],
+                            Canonical2 = corr_X[, 2])
+
+row.names(df_loadings_Y) = NULL
+row.names(df_loadings_X) = NULL
+
+df_loadings_Y = df_loadings_Y |> 
+  # dplyr::mutate(Variable = str_replace_all(Variable, "_", "\n")) |> 
+  dplyr::mutate(Canonical1 = round(Canonical1,3),
+                Canonical2 = round(Canonical2,3))
+
+df_loadings_X = df_loadings_X |> 
+  # dplyr::mutate(Variable = str_replace_all(Variable, "_", "\n")) |> 
+  dplyr::mutate(Canonical1 = round(Canonical1,3),
+                Canonical2 = round(Canonical2,3))
+
+# Biplot
+cca_plot = ggplot(df_biplot_scores, aes(x = Canonical1, y = Canonical2)) +
+  geom_point(color = "blue", alpha = 0.7) +
+  geom_segment(data = df_loadings_X, 
+               aes(x = 0, y = 0, 
+                   xend = Canonical1, yend = Canonical2),
+               arrow = arrow(length = unit(0.2, "cm")), color = "red") +
+  ggrepel::geom_text_repel(
+    data = df_loadings_X, 
+    aes(x = Canonical1, y = Canonical2, 
+        label = Variable),
+    color = "darkred", hjust = 1.1, vjust = 1.1) +
+  geom_segment(
+    data = df_loadings_Y, 
+    aes(x = 0, y = 0, 
+        xend = Canonical1, yend = Canonical2),
+    arrow = arrow(length = unit(0.2, "cm")), color = "green") +
+  ggrepel::geom_text_repel(
+    data = df_loadings_Y, 
+    aes(x = Canonical1, y = Canonical2, label = Variable),
+    color = "darkgreen", hjust = 1.1, vjust = 1.1) +
+  labs(x = "Canonical Variable 1", y = "Canonical Variable 2",
+       title = "Biplot of Canonical Correlation Analysis") +
+  theme_minimal()
+
+# p = plot_ly(df_biplot_scores)
+#   
+# for(var in unique(df_biplot_scores$vars)){
+#   p = p |> 
+#     add_segments(type = 'scatter', mode = 'lines+markers',
+#               data = df_biplot_scores[df_biplot_scores$vars == var,], 
+#                  xend = ~0, yend = ~0, x = ~Canonical1, y = ~Canonical2,
+#                  name = var
+#     )
+# }  
+```
+
+### Static ggplot
+
+```{r}
+cca_plot
+```
+
+### Interactive plotly
+
+```{r}
+plotly::ggplotly(
+  ggplot(df_biplot_scores, aes(x = Canonical1, y = Canonical2)) +
+    geom_point(color = "blue", alpha = 0.7) +
+    geom_segment(data = df_loadings_X, 
+                 aes(x = 0, y = 0, 
+                     xend = Canonical1, yend = Canonical2),
+                 arrow = arrow(length = unit(0.2, "cm")), color = "red") +
+    geom_text(
+      data = df_loadings_X, 
+      aes(x = Canonical1, y = Canonical2, 
+          label = Variable),
+      color = "darkred", hjust = 1.1, vjust = 1.1) +
+    geom_segment(
+      data = df_loadings_Y, 
+      aes(x = 0, y = 0, 
+          xend = Canonical1, yend = Canonical2),
+      arrow = arrow(length = unit(0.2, "cm")), color = "green") +
+    geom_text(
+      data = df_loadings_Y, 
+      aes(x = Canonical1, y = Canonical2, label = Variable),
+      color = "darkgreen", hjust = 1.1, vjust = 1.1) +
+    labs(x = "Canonical Variable 1", y = "Canonical Variable 2",
+         title = "Biplot of Canonical Correlation Analysis") +
+    theme_minimal()
+)
+```
+
+## Linear Mixed Effects Models {.tabset}
+
+Note: Nonlinear mixed effects models (nlme) are a thing - I just do not understand them! A steep learning curve. For now, let's check out the linear variety.
+
+```{r apply_lmer_model_with_step}
+library(lme4)
+
+lmer_results = response_vars |> 
+  purrr::map( ~ { 
+    
+    # Make a trimmed down version of dat that only keeps rows with non-NA
+    # values for this response variable.
+    rdat = dat |> dplyr::filter(!is.na(.x))
+    
+    # Who has NA values?
+    rdat = rdat[complete.cases(rdat),]
+    
+    # Create a formula for the full model
+    lmer_formula <- as.formula(
+      paste(.x, "~", paste(predictor_vars, collapse = " + "), "+ (1 | logging_phase)")
+    )
+    
+    # Fit the full model
+    lmer_model <- lmer(
+      lmer_formula,
+      data = rdat
+    )
+    
+    summary(lmer_model)
+  })
+```
+
+```{r make_lmer_result_chunks, results='asis'}
+
+for(i in 1:length(unique(response_vars))){
+  
+  cat(paste0('\n\n### ',response_vars[i]))
+  
+  cat("\n\n")
+  
+  cat("Fixed Effects:")
+  
+  print(knitr::kable(lmer_results[[i]][10]))
+  
+  cat("\n\n")
+  
+  cat("Correlation of Fixed Effects:")
+  
+  print(knitr::kable(lmer_results[[i]]$coefficients))
+  
+  cat("\n\n")
+  
+  cat("Dimensions:")
+  
+  dims_df = as.data.frame(lmer_results[[i]][[3]]$dims)
+  dims_df$dimension = row.names(dims_df)
+  names(dims_df)[1] = "N"
+  row.names(dims_df) = NULL
+  dims_df = dims_df[,c(2,1)]
+  print(dims_df)
+  
+  cat("\n\n")
+
+}
+```
