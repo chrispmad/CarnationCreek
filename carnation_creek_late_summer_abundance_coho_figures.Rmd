@@ -27,9 +27,27 @@ library(paletteer)
 #   invisible()
 ```
 
+```{r copy_data_over}
+if(stringr::str_detect(getwd(),"CMADSEN")){
+  file.copy(
+    from = "C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/CarnationCreekDataCleaning/outputs/data_adult_spawners.xlsx",
+    to = "C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/CarnationCreek/data/data_adult_spawners.xlsx"
+  )
+  file.copy(
+    from = "C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/CarnationCreekDataCleaning/outputs/data_agescale_1991-2019.xlsx",
+    to = "C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/CarnationCreek/data/data_agescale.xlsx"
+  )
+  file.copy(
+    from = "C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/CarnationCreekDataCleaning/outputs/data_outmigration_1991-2023.xlsx",
+    to = "C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/CarnationCreek/data/data_outmigration_1991-2023.xlsx"
+  )
+}
+```
+
 ```{r load_in_data}
 # Load in formatted datasets
 #hyd = read_csv("data/formatted/all_hydro_data_by_year.csv")
+spawners = readxl::read_excel("data/data_adult_spawners.xlsx")
 
 juv_co = readxl::read_excel(paste0("data/raw/fish_data/late_summer_juv_coho_pop_ests_by_section.xlsx")) |> 
   purrr::set_names(snakecase::to_snake_case) |> 
@@ -188,6 +206,46 @@ ggplot() +
   ggthemes::theme_pander()
 ```
 
+### Number of Female Spawners and Smolts per Year
+```{r}
+# Summarise female spawners by year and sample location
+sp_y_loc = spawners |> 
+  filter(sex == 'female') |> 
+  count(year,sample_location,name = "female_spawners")
+
+sp_y = spawners |> 
+  filter(sex == 'female') |> 
+  count(year,name = "female_spawners") |> 
+  mutate(year = as.numeric(year))
+
+ggplot()+
+  geom_col(aes(x = year, y = population_estimate_n, fill = 'smolts'), alpha=0.8, data = juv_co_s) +
+  geom_col(aes(x = year, y = female_spawners, fill = 'ratio'), alpha=0.8, data = sp_y) + 
+  scale_fill_paletteer_d("nationalparkcolors::Badlands") +
+  geom_vline(data = logging_changes, aes(xintercept = Year), lty = 1, alpha = 0.5, color = 'darkred') +
+  geom_text(data =logging_phase_labels, aes(x = Year, y = 1.1*max(juv_co_s$population_estimate_n,na.rm=T), label = label), color = logging_phase_labels$color) + 
+  labs(fill = 'Female Spawners', y = 'Female Spawners by Year', x = 'Year and Logging Phase') +
+  ggthemes::theme_pander()
+```
+
+### Ratio of Smolts to Female Spawners by Year
+```{r}
+# Join spawners to smolts
+juv_co_w_spawners = juv_co_s |> 
+  left_join(sp_y) |> 
+  mutate(smolt_to_female_spawner_ratio = population_estimate_n / female_spawners)
+
+ggplot()+
+  geom_col(aes(x = year, y = smolt_to_female_spawner_ratio, fill = 'ratio'), alpha=0.8, data = juv_co_w_spawners) + 
+  scale_fill_paletteer_d("nationalparkcolors::Badlands") +
+  # scale_fill_manual(values = c(coho_colour_values$values))
+  # scale_fill_identity(guide = "legend") + 
+  geom_vline(data = logging_changes, aes(xintercept = Year), lty = 1, alpha = 0.5, color = 'darkred') +
+  geom_text(data =logging_phase_labels, aes(x = Year, y = 1.1*max(juv_co_w_spawners$smolt_to_female_spawner_ratio,na.rm=T), label = label), color = logging_phase_labels$color) + 
+  labs(fill = 'Smolt:Female \nSpawner Ratio', y = 'Smolt population / Female Spawners', x = 'Year and Logging Phase') +
+  ggthemes::theme_pander()
+```
+
 ## Boxplots {.tabset}
 
 ### Coho Pop by Year and Logging Phase by Section
@@ -205,3 +263,6 @@ co_section |>
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12)) +
   ggthemes::theme_pander()
 ```
+
+
+
